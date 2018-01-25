@@ -9,8 +9,6 @@
 #include<algorithm>
 using namespace std;
 
-// Edit: debugging
-int location = 0;
 
 // Object definitions
 #pragma region Object definitions
@@ -75,7 +73,6 @@ private:
 	HuffmanNode * Tree;
 
 public:
-	// Edit: Memory allocation is oldschool c, may need to be changed.
 	HuffmanTree() {}
 	// This constructor is for the reading
 	HuffmanTree(int Length) {
@@ -187,6 +184,7 @@ void CompressFile(string &SourceFile, string &DestinationFile)
 	vector<bool> eofCode;
 
 	// Code section
+
 	// Map of character and number of appearances
 	AppearanceMap = MapAppearances(SourceFile);
 	// Generating a vector of Huffman nodes to make the tree
@@ -204,6 +202,9 @@ void CompressFile(string &SourceFile, string &DestinationFile)
 	// Writes the message encoded into the file
 	WriteEncodingToFile(SourceFile, DestinationFile,
 		Tree, Dictionary, eofCode);
+	// Freeing memory
+	delete[] Dictionary;
+	return;
 }
 
 /// <summary>
@@ -409,14 +410,8 @@ void FillDictionary(HuffmanTree &Tree,
 	// If left is zero right is too, meaning we have reached a leaf
 	if (!Tree.GetTree()[index].GetLeft())
 	{
-		if (location == 9)
-		{
-			cout << "Breakpoint";
-		}
-		// Chars can be negative so dictionary has 128 added to indixes
+		// Chars can be negative so dictionary has 128 added to indexes
 		Dictionary[Tree.GetTree()[index].GetCharacter() + 128] = code;
-		cout << location++;
-		cout << "insert" << endl;
 		return;
 	}
 	// If we haven't reached a leaf keep going
@@ -425,12 +420,10 @@ void FillDictionary(HuffmanTree &Tree,
 	// Error is here
 	FillDictionary(Tree, Dictionary, Tree.GetTree()[index].GetLeft(),
 		code, eofCode);
-	cout << "left" << endl;
 	// Add a 0 for every right turn
 	code.at(code.size() - 1) = false;
 	FillDictionary(Tree, Dictionary, Tree.GetTree()[index].GetRight(),
 		code, eofCode);
-	cout << "right" << endl;
 }
 
 
@@ -456,6 +449,7 @@ void WriteEncodingToFile(string &SourceFile, string &DestinationFile,
 	char WriteBuffer = 0;
 	char Counter = 0;
 	int	 VectorIndex = 0;
+	// Edit: may be more efficient way to do this
 	bool KeepRunning = true;
 	bool ReachedEnd = false;
 
@@ -480,16 +474,6 @@ void WriteEncodingToFile(string &SourceFile, string &DestinationFile,
 	Dest.write(reinterpret_cast<char*>(&TreeWriteBuffer), sizeof(int));
 	for (int i = 0; i < Tree.GetLength(); i++)
 	{
-		// Debugging print
-		if (i<10)
-		{
-			cout << '0';
-		}
-		cout << i << " - ";
-		cout << "L-" << Tree.GetTree()[i].GetLeft();
-		cout << "\tR-" << Tree.GetTree()[i].GetRight();
-		cout << "\tC-" << Tree.GetTree()[i].GetCharacter();
-		cout << "\tN-" << Tree.GetTree()[i].GetNumAppearances() << endl;
 		if (Source.eof())
 		{
 			cout << "Error";
@@ -511,34 +495,26 @@ void WriteEncodingToFile(string &SourceFile, string &DestinationFile,
 	}
 
 	Source >> ReadBuffer;
-	// Chars can be negative so dictionary has 128 added to indixes
+	// Chars can be negative so dictionary has 128 added to indexes
 	Code = Dictionary[ReadBuffer + 128];
+
 	// While there is still data to encode this loop keeps reading from Source
 	// encoding the data, writing it to a buffer, than when the buffer is full 
 	// writing it to the file.
 	while (KeepRunning)
 	{
-		// Fills the buffer with the Code, writing every 8 bits
-		// or when end is reached.
+		// Writes the codes to the file, in 8 bit segments.
+		// A more efficient way of counting to 8 by shifting out 8 "1"s.
 		for (Counter |= 0xff; Counter; Counter <<= 1)
 		{
-			// Loop condition explination:
-			// Counter is 0 before each start so |=0xff makes it 0xff. 
-			// (1111,1111). The shifting of the bits matches the shifting in the 
-			// writing buffer and is slightly more efficiant than a counter.
-			// It has a bit shifted out every time a bit is shifted into the 
-			// write buffer.  
-			// When all the bits have been shifted out of the counter,
-			// the write buffer is full.
-
 			// Reached end of vector.
 			if (VectorIndex == Code.size())
 			{
 				// Zeroing more efficiently
 				VectorIndex ^= VectorIndex;
-				// Reads from file, breaks when file ends
+				// Reads a character from the file
 				Source.get(ReadBuffer);
-				//  Reached file end, write file ending
+				// Reached file end, we need to write the eofCode, once.
 				if (Source.eof())
 				{
 					// If we already wrote the eof code
@@ -553,13 +529,16 @@ void WriteEncodingToFile(string &SourceFile, string &DestinationFile,
 						break;
 					}
 					// If we didn't write eofCode yet
-					Code = eofCode;
-					ReachedEnd = true;
+					else
+					{
+						Code = eofCode;
+						ReachedEnd = true;
+					}
 				}
 				// Not at file end
 				else
 				{
-					// Chars can be negative so dictionary has 128 added to indixes
+					// Chars can be negative so dictionary has 128 added to indexes
 					Code = Dictionary[ReadBuffer + 128];
 				}
 			}
