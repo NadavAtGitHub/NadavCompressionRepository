@@ -71,7 +71,7 @@ int main() {
 	// Variable definitions
 	map<char, int> CharAppearances;
 	vector<HuffmanNode> MessageEnsamble;
-	string Source = "E:\\Visual Studio projects\\HuffmanEfficient\\alice.txt";
+	string Source = "E:\\Visual Studio projects\\HuffmanEfficient\\LargeText.txt";
 	string Storage = "E:\\Visual Studio projects\\HuffmanEfficient\\temp.DAT";
 	string New = "E:\\Visual Studio projects\\HuffmanEfficient\\Decoded.txt";
 	CompressFile(Source, Storage);

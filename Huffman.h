@@ -1,5 +1,4 @@
 #pragma once
-#define _CRT_SECURE_NO_WARNINGS
 #include<map>
 #include<vector>
 #include<bitset>
@@ -156,7 +155,7 @@ void			WriteEncodingToFile(string &SourceFile, string &DestinationFile,
 	HuffmanTree &Tree,
 	vector<bool> *Dictionary,
 	vector<bool> &eofCode);
-map<char, int>	MapAppearances(string &FilePath);
+int *	MapAppearances(string &FilePath);
 vector<bool> * EncodingDictionary
 (HuffmanTree &Tree, vector<bool> &eofCode);
 void			FillDictionary(HuffmanTree &Tree,
@@ -170,11 +169,179 @@ void			FillDictionary(HuffmanTree &Tree,
 #pragma region Functions
 
 /// <summary>
-/// Creates a compressed version of the source file in the Destination file
+/// Creates a map of the appearanceses of all the characters 
+/// in the file specified by the FilePath.
+///	Edit: int may not be enough for number of appearances of everything
+/// </summary>
+/// <param name="FilePath">The FilePath.</param>
+/// <returns>A map of character, number of appeanance</returns>
+map<char, int> MapAppearancesBinary(string &FilePath)
+{
+	// Variable definitions
+	map<char, int> Appearances;
+	char letter;
+	ifstream testFile;
+
+	// Code section
+	// Opens file
+	testFile.open(FilePath, ios::binary | ios::in);
+	// If error in opening
+	if (!testFile.is_open()) {
+		cerr << "An error opening file";
+		exit(1);
+	}
+	// Reads file 1 character at a time, counts appearances
+	while (!testFile.eof())
+	{
+		testFile.read(&letter, sizeof(char));
+		Appearances[letter]++;
+	}
+	// Closes file
+	testFile.close();
+	// Return the map
+	return(Appearances);
+}
+
+/// <summary>
+/// Compresses the source file, writes compressed version into the 
+/// destination file.
 /// </summary>
 /// <param name="SourceFile">The source file.</param>
 /// <param name="DestinationFile">The destination file.</param>
-void CompressFile(string &SourceFile, string &DestinationFile)
+/// <param name="Tree">The Huffman tree.</param>
+/// <param name="Dictionary">The encoding dictionary.</param>
+/// <param name="eofCode">The vector to contain the code for end of file.</param>
+void WriteEncodingToFileBinary(string &SourceFile, string &DestinationFile,
+	HuffmanTree &Tree, vector<bool> *Dictionary, vector<bool> &eofCode)
+{
+	// Variable definitions
+	ifstream Source;
+	ofstream Dest;
+	vector<bool> Code;
+	char ReadBuffer;
+	// Buffer for writing integers that represent the tree
+	int TreeWriteBuffer;
+	char WriteBuffer = 0;
+	char Counter = 0;
+	int	 VectorIndex = 0;
+	// Edit: may be more efficient way to do this
+	bool KeepRunning = true;
+	bool ReachedEnd = false;
+
+	// Code section
+	// Opening files + checking for errors in opening
+	Source.open(SourceFile);
+	if (!Source)
+	{
+		cerr << "An error occured in opening file " << SourceFile;
+		cerr << " in Write To File";
+		exit(1);
+	}
+	Dest.open(DestinationFile, ios::binary | ios::out);
+	if (!Dest)
+	{
+		cerr << "An error occured in opening file " << DestinationFile;
+		cerr << " in Write To File";
+		exit(1);
+	}
+	// Writing the HuffmanTree, legth first to ease reading.
+	TreeWriteBuffer = Tree.GetLength();
+	Dest.write(reinterpret_cast<char*>(&TreeWriteBuffer), sizeof(int));
+	for (int i = 0; i < Tree.GetLength(); i++)
+	{
+		if (Source.eof())
+		{
+			cout << "Error";
+			break;
+		}
+
+		// Write left
+		TreeWriteBuffer = Tree.GetTree()[i].GetLeft();
+		Dest.write(reinterpret_cast<char*>(&TreeWriteBuffer), sizeof(int));
+		// Write right
+		TreeWriteBuffer = Tree.GetTree()[i].GetRight();
+		Dest.write(reinterpret_cast<char*>(&TreeWriteBuffer), sizeof(int));
+		// Write the character
+		WriteBuffer = Tree.GetTree()[i].GetCharacter();
+		Dest.write(&WriteBuffer, sizeof(char));
+		// Write the number of appearances
+		TreeWriteBuffer = Tree.GetTree()[i].GetNumAppearances();
+		Dest.write(reinterpret_cast<char*>(&TreeWriteBuffer), sizeof(int));
+	}
+
+	Source.read(&ReadBuffer, sizeof(char));
+	// Chars can be negative so dictionary has 128 added to indexes
+	Code = Dictionary[ReadBuffer + 128];
+
+	// While there is still data to encode this loop keeps reading from Source
+	// encoding the data, writing it to a buffer, than when the buffer is full 
+	// writing it to the file.
+	while (KeepRunning)
+	{
+		// Writes the codes to the file, in 8 bit segments.
+		// A more efficient way of counting to 8 by shifting out 8 "1"s.
+		for (Counter |= 0xff; Counter; Counter <<= 1)
+		{
+			// Reached end of vector.
+			if (VectorIndex == Code.size())
+			{
+				// Zeroing more efficiently
+				VectorIndex ^= VectorIndex;
+				// Reads a character from the file
+				Source.read(&ReadBuffer, sizeof(char));
+				// Reached file end, we need to write the eofCode, once.
+				if (Source.eof())
+				{
+					// If we already wrote the eof code
+					if (ReachedEnd)
+					{
+						// Fill the buffer with eof properly
+						for (; Counter; Counter <<= 1)
+						{
+							WriteBuffer <<= 1;
+						}
+						KeepRunning = false;
+						break;
+					}
+					// If we didn't write eofCode yet
+					else
+					{
+						Code = eofCode;
+						ReachedEnd = true;
+					}
+				}
+				// Not at file end
+				else
+				{
+					// Chars can be negative so dictionary has 128 added to indexes
+					Code = Dictionary[ReadBuffer + 128];
+				}
+			}
+			// Shift the buffer one to the left
+			WriteBuffer <<= 1;
+			// If true turn on last bit, else keep it off.
+			// Increment index.
+			WriteBuffer |= (Code[VectorIndex++]) ? 1 : 0;
+		}
+		// Write the buffer
+		Dest.write(&WriteBuffer, sizeof(char));
+		// Zeroes the write buffer slightly more efficiently
+		WriteBuffer ^= WriteBuffer;
+	}
+
+
+	// closing files.
+	Source.close();
+	Dest.close();
+	cout << "Done writing";
+}
+
+/// <summary>
+/// Creates a compressed version of the source binary file in the Destination file
+/// </summary>
+/// <param name="SourceFile">The source file.</param>
+/// <param name="DestinationFile">The destination file.</param>
+void CompressFileBinary(string &SourceFile, string &DestinationFile)
 {
 	// Variable definitions
 	map<char, int> AppearanceMap;
@@ -186,7 +353,7 @@ void CompressFile(string &SourceFile, string &DestinationFile)
 	// Code section
 
 	// Map of character and number of appearances
-	AppearanceMap = MapAppearances(SourceFile);
+	AppearanceMap = MapAppearancesBinary(SourceFile);
 	// Generating a vector of Huffman nodes to make the tree
 	for (auto key : AppearanceMap)
 	{
@@ -200,10 +367,166 @@ void CompressFile(string &SourceFile, string &DestinationFile)
 	// Creates the dictionary used to encode the message
 	vector<bool>* Dictionary = EncodingDictionary(Tree, eofCode);
 	// Writes the message encoded into the file
+	WriteEncodingToFileBinary(SourceFile, DestinationFile,
+		Tree, Dictionary, eofCode);
+	// Freeing memory
+	delete[] Dictionary;
+	return;
+}
+
+/// <summary>
+/// Decompresses the file, and writes the decompressed version into the
+/// binary destination file.
+/// </summary>
+/// <param name="SourceFile">The source file.</param>
+/// <param name="DestinationFile">The destination file.</param>
+void DecompressFileBinary(string &SourceFile, string &DestinationFile)
+{
+	// Variable definitions
+	ifstream Source;
+	ofstream Dest;
+	// Index for seaching the tree
+	int Index = 0;
+	char Counter = 0;
+	// For reading into from the file
+	int ReadBuffer;
+	char CharReadBuffer;
+	bool KeepRunning = true;
+	// Tree variables
+
+	int TreeLength;
+	// Node variables
+	int LeftChild;
+	int RightChild;
+	char Character;
+	int NumAppearances;
+	
+	// Code section
+	// Opening files and checking for errors
+	Source.open(SourceFile, ios::binary | ios::in);
+	if (!Source)
+	{
+		cerr << "An error occured in opening file " << SourceFile;
+		cerr << " in Decompress File";
+		exit(1);
+	}
+	Dest.open(DestinationFile, ios::binary | ios::in);
+	if (!Dest)
+	{
+		cerr << "An error occured in opening file " << DestinationFile;
+		cerr << " in Decompress File";
+		exit(1);
+	}
+
+	// Reding the tree length
+	Source.read(reinterpret_cast<char*>(&TreeLength), sizeof(int));
+	HuffmanTree Tree(TreeLength);
+
+	// Reading the tree
+	for (int i = 0; i < TreeLength; ++i)
+	{
+
+		// Reading the parameters for each node
+		// Read left child
+		Source.read(reinterpret_cast<char*>(&LeftChild), sizeof(int));
+		// Read right child
+		Source.read(reinterpret_cast<char*>(&RightChild), sizeof(int));
+		// Read character
+		Character ^= Character;
+
+		Source.read(&Character, sizeof(char));
+
+		// Read number of appearances
+		Source.read(reinterpret_cast<char*>(&NumAppearances), sizeof(int));
+
+		// Edit: use 1 integer (read buffer) and 1 character
+		Tree.GetTree()[i].SetCharacter(Character);
+		Tree.GetTree()[i].SetLeft(LeftChild);
+		Tree.GetTree()[i].SetRight(RightChild);
+		Tree.GetTree()[i].SetNumAppearances(NumAppearances);
+	}
+
+	while (KeepRunning)
+	{
+		Source.read(&Character, sizeof(char));
+		for (Counter |= 0xff; Counter; Counter <<= 1)
+		{
+			// Reached character
+			if (!Tree.GetTree()[Index].GetLeft())
+			{
+				// End of file character with 0 appearances
+				if (!Tree.GetTree()[Index].GetNumAppearances())
+				{
+					// End the decompression
+					KeepRunning = false;
+					break;
+				}
+				
+				// Write character
+				CharReadBuffer = Tree.GetTree()[Index].GetCharacter();
+				Dest.write(&CharReadBuffer, sizeof(char));
+				// Zeroing index
+				Index ^= Index;
+			}
+			// If the leftomost bit is on in character
+			if (Character & 0x80)
+			{
+				// Go to left child
+				Index = Tree.GetTree()[Index].GetLeft();
+			}
+			// Leftmost bit is off
+			else
+			{
+				// Go to right child
+				Index = Tree.GetTree()[Index].GetRight();
+			}
+			Character <<= 1;
+		}
+	}
+
+	// Closing files
+	Source.close();
+	Dest.close();
+	return;
+}
+
+
+void CompressFile(string &SourceFile, string &DestinationFile)
+{
+	// Variable definitions
+	int * AppearanceMap;
+	vector<HuffmanNode> MessageEnsamble;
+
+	// The code that signals that the file has ended
+	vector<bool> eofCode;
+
+	// Code section
+
+	// Map of character and number of appearances
+	AppearanceMap = MapAppearances(SourceFile);
+	// Generating a vector of Huffman nodes to make the tree
+	for (int i = 0; i<256; i++)
+	{
+		// If character appeared
+		if (AppearanceMap[i])
+		{
+			// Edit: O(n) insertion
+			// chars can be negative, array indexes cannot.
+			MessageEnsamble.push_back(HuffmanNode(char(i - 128), AppearanceMap[i]));
+		}
+	}
+	// Sorting the vector in decending order of number of appearances
+	sort(MessageEnsamble.begin(), MessageEnsamble.end(), HuffmanComp);
+	// Constructing the tree
+	HuffmanTree Tree(MessageEnsamble);
+	// Creates the dictionary used to encode the message
+	vector<bool>* Dictionary = EncodingDictionary(Tree, eofCode);
+	// Writes the message encoded into the file
 	WriteEncodingToFile(SourceFile, DestinationFile,
 		Tree, Dictionary, eofCode);
 	// Freeing memory
 	delete[] Dictionary;
+	delete[] AppearanceMap;
 	return;
 }
 
@@ -497,7 +820,6 @@ void WriteEncodingToFile(string &SourceFile, string &DestinationFile,
 	Source >> ReadBuffer;
 	// Chars can be negative so dictionary has 128 added to indexes
 	Code = Dictionary[ReadBuffer + 128];
-
 	// While there is still data to encode this loop keeps reading from Source
 	// encoding the data, writing it to a buffer, than when the buffer is full 
 	// writing it to the file.
@@ -568,13 +890,12 @@ void WriteEncodingToFile(string &SourceFile, string &DestinationFile,
 /// </summary>
 /// <param name="FilePath">The FilePath.</param>
 /// <returns>A map of character, number of appeanance</returns>
-map<char, int> MapAppearances(string &FilePath)
+int * MapAppearances(string &FilePath)
 {
 	// Variable definitions
-	map<char, int> Appearances;
 	char letter;
 	ifstream testFile;
-
+	int * Appearances = new int[256]{ 0 };
 	// Code section
 	// Opens file
 	testFile.open(FilePath);
@@ -587,10 +908,12 @@ map<char, int> MapAppearances(string &FilePath)
 	while (!testFile.eof())
 	{
 		testFile.get(letter);
-		Appearances[letter]++;
+		Appearances[letter + 128]++;
 	}
 	// Closes file
 	testFile.close();
+
+	
 	// Return the map
 	return(Appearances);
 }
